@@ -143,6 +143,12 @@
   .history-pending { color: var(--ink-soft); }
   .history-empty { color: var(--ink-soft); font-size: 0.85rem; padding: 8px 2px; }
 
+  .readonly-field {
+    padding: 11px 12px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--bg); color: var(--ink-soft); font-size: 0.95rem;
+    font-family: 'Noto Sans Telugu', 'Inter', sans-serif;
+  }
+
   #pinOverlay {
     position: fixed; inset: 0; background: rgba(35,32,25,0.55);
     display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 50;
@@ -236,6 +242,7 @@
 
     <div id="list-edit" class="hidden">
       <button class="btn-back" id="btn-backToList">&larr; Back to list</button>
+      <button class="btn-ghost" id="btn-copyMyLink" style="width:100%; margin-bottom:14px;">🔗 Copy Personal Link</button>
       <div class="card">
         <label for="e-fullText">Full Text (sankalpa text)</label>
         <textarea id="e-fullText"></textarea>
@@ -301,11 +308,42 @@
     </div>
   </section>
 
+  <section id="screen-myprofile" class="screen">
+    <div class="card">
+      <label for="my-fullText" style="margin-top:0;">Full Text (sankalpa text)</label>
+      <textarea id="my-fullText"></textarea>
+
+      <label for="my-headName">Head Name</label>
+      <input id="my-headName" type="text">
+
+      <label for="my-phone">Phone</label>
+      <input id="my-phone" type="tel">
+
+      <div class="row2" style="margin-top:14px;">
+        <div>
+          <label style="margin-top:0;">Gotram</label>
+          <div id="my-gotram-readonly" class="readonly-field"></div>
+        </div>
+        <div>
+          <label style="margin-top:0;">Membership</label>
+          <div id="my-membership-readonly" class="readonly-field"></div>
+        </div>
+      </div>
+
+      <button class="btn-primary" id="btn-mySave">Save Changes</button>
+    </div>
+
+    <div class="card">
+      <label style="margin-top:0;">Puja History</label>
+      <div id="my-history"></div>
+    </div>
+  </section>
+
 </main>
 
 <div class="toast" id="toast"></div>
 
-<nav class="tabs">
+<nav class="tabs" id="navTabs">
   <button id="tab-add" class="active">➕ Add Entry</button>
   <button id="tab-puja">🪔 Execute Puja</button>
   <button id="tab-list">📋 List</button>
@@ -534,6 +572,18 @@ function showListEdit() {
 }
 document.getElementById('btn-backToList').addEventListener('click', showListBrowse);
 
+document.getElementById('btn-copyMyLink').addEventListener('click', async () => {
+  const m = allMembers.find(x => x.id === editingId);
+  if (!m || !m.token) { toast('No link available for this member', true); return; }
+  const link = `${location.origin}${location.pathname}?id=${m.id}&token=${m.token}`;
+  try {
+    await navigator.clipboard.writeText(link);
+    toast('Personal link copied');
+  } catch (err) {
+    toast('Copy failed: ' + err.message, true);
+  }
+});
+
 document.getElementById('btn-copyList').addEventListener('click', async () => {
   if (currentFiltered.length === 0) { toast('Nothing to copy', true); return; }
   const monthVal = listMonth.value;
@@ -733,6 +783,81 @@ document.getElementById('btn-delete').addEventListener('click', async () => {
     deleteConfirming = false;
     btn.textContent = 'Delete';
     btn.classList.remove('confirming');
+  }
+});
+
+// ---- My Profile (token-authenticated self-service, ?id=&token=) ----
+const urlParams = new URLSearchParams(window.location.search);
+const myId = urlParams.get('id');
+const myToken = urlParams.get('token');
+
+if (myId && myToken) {
+  pinOverlay.classList.add('hidden');
+  document.getElementById('navTabs').classList.add('hidden');
+  Object.values(tabs).forEach(t => t.screen.classList.remove('active'));
+  document.getElementById('screen-myprofile').classList.add('active');
+  loadMyRecord();
+}
+
+async function loadMyRecord() {
+  try {
+    const data = await apiGet({ action: 'myRecord', id: myId, token: myToken });
+    const p = data.profile;
+    document.getElementById('my-fullText').value = p.text || '';
+    document.getElementById('my-headName').value = p.headName || '';
+    document.getElementById('my-phone').value = p.phone || '';
+    document.getElementById('my-gotram-readonly').textContent = p.gotram || '';
+    document.getElementById('my-membership-readonly').textContent = p.membershipType === 'Annual'
+      ? `Annual (through ${monthLabel(p.endMonth.slice(0, 7))})`
+      : 'One-Time';
+    renderMyHistory(p, data.history);
+  } catch (err) {
+    document.getElementById('screen-myprofile').innerHTML =
+      `<div class="empty-state">⚠️ ${escapeHtml(err.message)}<br>This link may be invalid. Please check with the committee.</div>`;
+  }
+}
+
+function renderMyHistory(p, completed) {
+  const historyEl = document.getElementById('my-history');
+  if (!p.startMonth || !p.endMonth) {
+    historyEl.innerHTML = '<div class="history-empty">No schedule data.</div>';
+    return;
+  }
+  const months = monthRange(p.startMonth.slice(0, 7), p.endMonth.slice(0, 7));
+  const completedSet = new Set(completed.map(d => d.slice(0, 7)));
+  const nowYm = currentMonthStr();
+
+  historyEl.innerHTML = months.map(ym => {
+    const done = completedSet.has(ym);
+    const right = done
+      ? '<span class="history-done">✅ Done</span>'
+      : `<span class="history-pending">${ym > nowYm ? 'Upcoming' : 'Pending'}</span>`;
+    return `<div class="history-row"><span>${monthLabel(ym)}</span>${right}</div>`;
+  }).join('');
+}
+
+document.getElementById('btn-mySave').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-mySave');
+  const fullText = document.getElementById('my-fullText').value.trim();
+  if (!fullText) { toast('Full Text is required', true); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+  try {
+    await apiPost({
+      action: 'updateMyRecord',
+      id: myId,
+      token: myToken,
+      fullText,
+      headName: document.getElementById('my-headName').value.trim(),
+      phone: document.getElementById('my-phone').value.trim()
+    });
+    toast('Saved!');
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save Changes';
   }
 });
 

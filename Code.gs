@@ -41,8 +41,11 @@ function jsonOut(obj) {
 
 function doGet(e) {
   try {
-    checkPin(e.parameter.pin);
     var action = e.parameter.action;
+    // Token-authenticated (per-member link) actions bypass the admin PIN.
+    if (action === 'myRecord') return jsonOut(getMyRecord(e.parameter.id, e.parameter.token));
+
+    checkPin(e.parameter.pin);
     if (action === 'pending') return jsonOut(getPending(e.parameter.month));
     if (action === 'members') return jsonOut(getAllMembers());
     if (action === 'completions') return jsonOut(getMemberCompletions(e.parameter.id));
@@ -55,6 +58,9 @@ function doGet(e) {
 function doPost(e) {
   try {
     var body = JSON.parse(e.postData.contents);
+    // Token-authenticated (per-member link) actions bypass the admin PIN.
+    if (body.action === 'updateMyRecord') return jsonOut(updateMyRecord(body));
+
     checkPin(body.pin);
     if (body.action === 'addMember') return jsonOut(addMember(body));
     if (body.action === 'complete') return jsonOut(markComplete(body.id, body.month));
@@ -93,7 +99,8 @@ function getAllMembers() {
       endMonth: monthKey(m['End Month']),
       amountPaid: m['Amount Paid'],
       pujaType: m['Puja Type'],
-      status: m.Status
+      status: m.Status,
+      token: m.Token
     };
   });
 }
@@ -152,6 +159,7 @@ function addMember(body) {
       case 'Amount Paid': return body.amountPaid || '';
       case 'Puja Type': return body.pujaType || '';
       case 'Status': return 'Active';
+      case 'Token': return Utilities.getUuid();
       default: return '';
     }
   });
@@ -176,6 +184,74 @@ function getMemberCompletions(id) {
   }
   months.sort();
   return months;
+}
+
+function getMyRecord(id, token) {
+  var m = readMembersRaw().filter(function (r) { return Number(r.ID) === Number(id); })[0];
+  if (!m) throw new Error('Not found');
+  if (!m.Token || String(m.Token) !== String(token)) throw new Error('Invalid link');
+
+  var profile = {
+    id: m.ID,
+    headName: m['Head Name'],
+    gotram: m.Gotram,
+    text: m['Full Text'],
+    phone: m.Phone,
+    membershipType: m['Membership Type'],
+    startMonth: monthKey(m['Start Month']),
+    endMonth: monthKey(m['End Month']),
+    amountPaid: m['Amount Paid'],
+    pujaType: m['Puja Type'],
+    status: m.Status
+  };
+  return { profile: profile, history: getMemberCompletions(id) };
+}
+
+function updateMyRecord(body) {
+  var sh = getMembersSheet();
+  var row = findMemberRow(body.id);
+  if (row === -1) throw new Error('Not found');
+
+  var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  var current = sh.getRange(row, 1, 1, headers.length).getValues()[0];
+  var currentObj = {};
+  headers.forEach(function (h, idx) { currentObj[h] = current[idx]; });
+
+  if (!currentObj.Token || String(currentObj.Token) !== String(body.token)) throw new Error('Invalid link');
+
+  // Self-service members may only edit their own contact info and sankalpa text —
+  // membership type, dates, payment, and status stay admin-controlled.
+  var newRow = headers.map(function (h) {
+    switch (h) {
+      case 'Head Name': return body.headName !== undefined ? body.headName : currentObj['Head Name'];
+      case 'Full Text': return body.fullText !== undefined ? body.fullText : currentObj['Full Text'];
+      case 'Phone': return body.phone !== undefined ? body.phone : currentObj.Phone;
+      default: return currentObj[h];
+    }
+  });
+  sh.getRange(row, 1, 1, headers.length).setValues([newRow]);
+  return { success: true };
+}
+
+// One-off: run manually from the Apps Script editor (Run button, select this
+// function) after adding the Token column, to backfill tokens for existing rows.
+function backfillTokens() {
+  var sh = getMembersSheet();
+  var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  var tokenCol = headers.indexOf('Token') + 1;
+  if (tokenCol === 0) throw new Error('Add a "Token" column to the Members sheet first');
+
+  var lastRow = sh.getLastRow();
+  var tokens = sh.getRange(2, tokenCol, lastRow - 1, 1).getValues();
+  var filled = 0;
+  for (var i = 0; i < tokens.length; i++) {
+    if (!tokens[i][0]) {
+      sh.getRange(i + 2, tokenCol).setValue(Utilities.getUuid());
+      filled++;
+    }
+  }
+  Logger.log('Backfilled ' + filled + ' tokens');
+  return filled;
 }
 
 function findMemberRow(id) {
