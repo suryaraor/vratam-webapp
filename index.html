@@ -216,7 +216,12 @@
 
   <section id="screen-list" class="screen">
     <div id="list-browse">
-      <input id="list-search" class="list-search" type="text" placeholder="Search by gotram, name, phone, #id...">
+      <div class="row2">
+        <input id="list-month" type="month">
+        <input id="list-search" type="text" placeholder="Search gotram, name, #id...">
+      </div>
+      <button class="btn-ghost" id="btn-copyList" style="width:100%; margin: 12px 0;">📋 Copy List for WhatsApp</button>
+      <div id="list-count" class="progress"></div>
       <div id="list-rows"></div>
     </div>
 
@@ -496,6 +501,14 @@ const listBrowse = document.getElementById('list-browse');
 const listEdit = document.getElementById('list-edit');
 const listRows = document.getElementById('list-rows');
 const listSearch = document.getElementById('list-search');
+const listMonth = document.getElementById('list-month');
+const listCount = document.getElementById('list-count');
+let currentFiltered = [];
+
+function monthLabel(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+}
 
 function showListBrowse() {
   listBrowse.classList.remove('hidden');
@@ -506,6 +519,23 @@ function showListEdit() {
   listEdit.classList.remove('hidden');
 }
 document.getElementById('btn-backToList').addEventListener('click', showListBrowse);
+
+document.getElementById('btn-copyList').addEventListener('click', async () => {
+  if (currentFiltered.length === 0) { toast('Nothing to copy', true); return; }
+  const monthVal = listMonth.value;
+  const header = monthVal
+    ? `🌟 శ్రీ సత్యనారాయణ వ్రతం - ${monthLabel(monthVal)} జాబితా 🌟\n\n`
+    : `🌟 శ్రీ సత్యనారాయణ వ్రతం జాబితా 🌟\n\n`;
+  const body = currentFiltered.map((m, i) => `${i + 1}. ${m.text}`).join('\n\n');
+  const text = header + body;
+
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Copied ' + currentFiltered.length + ' entries — paste into WhatsApp');
+  } catch (err) {
+    toast('Copy failed: ' + err.message, true);
+  }
+});
 
 async function loadMembers() {
   listRows.innerHTML = '<div class="empty-state">Loading...</div>';
@@ -519,14 +549,26 @@ async function loadMembers() {
 }
 
 listSearch.addEventListener('input', renderList);
+listMonth.addEventListener('input', renderList);
 
 function renderList() {
   const q = listSearch.value.trim().toLowerCase();
+  const monthVal = listMonth.value;
+
   const filtered = allMembers.filter(m => {
+    if (monthVal) {
+      if (m.status !== 'Active') return false;
+      const start = m.startMonth ? m.startMonth.slice(0, 7) : null;
+      const end = m.endMonth ? m.endMonth.slice(0, 7) : null;
+      if (!start || !end || !(start <= monthVal && monthVal <= end)) return false;
+    }
     if (!q) return true;
     const hay = [m.id, m.gotram, m.text, m.headName, m.phone].join(' ').toLowerCase();
     return hay.includes(q);
   });
+
+  currentFiltered = filtered;
+  listCount.textContent = filtered.length + (monthVal ? ` scheduled for ${monthLabel(monthVal)}` : ' members');
 
   if (filtered.length === 0) {
     listRows.innerHTML = '<div class="empty-state">No matches.</div>';
