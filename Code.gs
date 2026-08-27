@@ -45,6 +45,7 @@ function doGet(e) {
     var action = e.parameter.action;
     if (action === 'pending') return jsonOut(getPending(e.parameter.month));
     if (action === 'members') return jsonOut(getAllMembers());
+    if (action === 'completions') return jsonOut(getMemberCompletions(e.parameter.id));
     return jsonOut({ error: 'unknown action' });
   } catch (err) {
     return jsonOut({ error: err.message });
@@ -163,6 +164,18 @@ function markComplete(id, monthStr) {
   var targetKey = monthKey(monthStr ? parseLocalDate(monthStr) : new Date());
   sh.appendRow([id, targetKey, new Date()]);
   return { success: true };
+}
+
+function getMemberCompletions(id) {
+  var rows = getCompletionsSheet().getDataRange().getValues();
+  var months = [];
+  for (var i = 1; i < rows.length; i++) {
+    if (Number(rows[i][0]) === Number(id)) {
+      months.push(monthKey(rows[i][1]));
+    }
+  }
+  months.sort();
+  return months;
 }
 
 function findMemberRow(id) {

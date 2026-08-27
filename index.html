@@ -134,6 +134,15 @@
   .btn-danger.confirming { background: #7a1f1e; }
   .btn-back { background: none; color: var(--accent); font-size: 0.85rem; padding: 6px 0; margin-bottom: 8px; }
 
+  .history-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 9px 2px; border-bottom: 1px solid var(--border); font-size: 0.9rem;
+  }
+  .history-row:last-child { border-bottom: none; }
+  .history-done { color: var(--good); font-weight: 700; }
+  .history-pending { color: var(--ink-soft); }
+  .history-empty { color: var(--ink-soft); font-size: 0.85rem; padding: 8px 2px; }
+
   #pinOverlay {
     position: fixed; inset: 0; background: rgba(35,32,25,0.55);
     display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 50;
@@ -283,6 +292,11 @@
           <button class="btn-danger" id="btn-delete">Delete</button>
           <button class="btn-primary" id="btn-save" style="margin-top:0;">Save Changes</button>
         </div>
+      </div>
+
+      <div class="card">
+        <label style="margin-top:0;">Puja History</label>
+        <div id="e-history"></div>
       </div>
     </div>
   </section>
@@ -617,7 +631,48 @@ function openEdit(id) {
   delBtn.textContent = 'Delete';
   delBtn.classList.remove('confirming');
 
+  loadHistory(m);
   showListEdit();
+}
+
+function monthRange(startYm, endYm) {
+  const months = [];
+  let [y, m] = startYm.split('-').map(Number);
+  const [ey, em] = endYm.split('-').map(Number);
+  while (y < ey || (y === ey && m <= em)) {
+    months.push(`${y}-${String(m).padStart(2, '0')}`);
+    m++;
+    if (m > 12) { m = 1; y++; }
+  }
+  return months;
+}
+
+async function loadHistory(m) {
+  const historyEl = document.getElementById('e-history');
+  historyEl.innerHTML = '<div class="history-empty">Loading...</div>';
+  if (!m.startMonth || !m.endMonth) {
+    historyEl.innerHTML = '<div class="history-empty">No schedule data.</div>';
+    return;
+  }
+
+  const months = monthRange(m.startMonth.slice(0, 7), m.endMonth.slice(0, 7));
+  let completed = [];
+  try {
+    completed = await apiGet({ action: 'completions', id: m.id });
+  } catch (err) {
+    historyEl.innerHTML = '<div class="history-empty">Could not load history.</div>';
+    return;
+  }
+  const completedSet = new Set(completed.map(d => d.slice(0, 7)));
+  const nowYm = currentMonthStr();
+
+  historyEl.innerHTML = months.map(ym => {
+    const done = completedSet.has(ym);
+    const right = done
+      ? '<span class="history-done">✅ Done</span>'
+      : `<span class="history-pending">${ym > nowYm ? 'Upcoming' : 'Pending'}</span>`;
+    return `<div class="history-row"><span>${monthLabel(ym)}</span>${right}</div>`;
+  }).join('');
 }
 
 document.getElementById('btn-save').addEventListener('click', async () => {
