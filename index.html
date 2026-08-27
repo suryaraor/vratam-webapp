@@ -114,6 +114,26 @@
   .complete-btn { background: var(--good); color: #fff; width: 100%; font-size: 1.1rem; padding: 18px; margin-top: 18px; }
   .complete-btn:disabled { opacity: 0.5; }
 
+  /* List screen */
+  .list-row {
+    background: var(--card); border-radius: 12px; box-shadow: var(--shadow);
+    padding: 12px 14px; margin-bottom: 10px; display: flex; align-items: center; gap: 10px; cursor: pointer;
+  }
+  .list-row.cancelled { opacity: 0.55; }
+  .list-row-id { font-size: 0.72rem; color: var(--ink-soft); font-weight: 700; min-width: 28px; }
+  .list-row-main { flex: 1; min-width: 0; }
+  .list-row-gotram { font-family: 'Noto Sans Telugu', sans-serif; font-weight: 700; color: var(--accent); font-size: 0.92rem; }
+  .list-row-text { font-family: 'Noto Sans Telugu', sans-serif; font-size: 0.85rem; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .badge { font-size: 0.68rem; font-weight: 700; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
+  .badge-annual { background: #fdeee0; color: var(--accent); }
+  .badge-onetime { background: #eef0ec; color: var(--ink-soft); }
+  .badge-cancelled { background: #f6e3e2; color: var(--bad); }
+  .list-search { margin-bottom: 12px; }
+  .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
+  .btn-danger { background: var(--bad); color: #fff; }
+  .btn-danger.confirming { background: #7a1f1e; }
+  .btn-back { background: none; color: var(--accent); font-size: 0.85rem; padding: 6px 0; margin-bottom: 8px; }
+
   #pinOverlay {
     position: fixed; inset: 0; background: rgba(35,32,25,0.55);
     display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 50;
@@ -194,6 +214,74 @@
     <div id="puja-area"></div>
   </section>
 
+  <section id="screen-list" class="screen">
+    <div id="list-browse">
+      <input id="list-search" class="list-search" type="text" placeholder="Search by gotram, name, phone, #id...">
+      <div id="list-rows"></div>
+    </div>
+
+    <div id="list-edit" class="hidden">
+      <button class="btn-back" id="btn-backToList">&larr; Back to list</button>
+      <div class="card">
+        <label for="e-fullText">Full Text (sankalpa text)</label>
+        <textarea id="e-fullText"></textarea>
+
+        <label for="e-gotram">Gotram</label>
+        <input id="e-gotram" type="text">
+
+        <div class="row2">
+          <div>
+            <label for="e-headName">Head Name (optional)</label>
+            <input id="e-headName" type="text">
+          </div>
+          <div>
+            <label for="e-phone">Phone (optional)</label>
+            <input id="e-phone" type="tel">
+          </div>
+        </div>
+
+        <div class="row2">
+          <div>
+            <label for="e-membershipType">Membership</label>
+            <select id="e-membershipType">
+              <option value="One-Time">One-Time</option>
+              <option value="Annual">Annual (12 months)</option>
+            </select>
+          </div>
+          <div>
+            <label for="e-startMonth">Start Month</label>
+            <input id="e-startMonth" type="month">
+          </div>
+        </div>
+
+        <div class="row2">
+          <div>
+            <label for="e-amountPaid">Amount Paid</label>
+            <input id="e-amountPaid" type="number" inputmode="numeric">
+          </div>
+          <div>
+            <label for="e-pujaType">Puja Type</label>
+            <select id="e-pujaType">
+              <option value="సంకల్ప">సంకల్ప (Sankalpa)</option>
+              <option value="ప్రత్యక్ష">ప్రత్యక్ష (In-person)</option>
+            </select>
+          </div>
+        </div>
+
+        <label for="e-status">Status</label>
+        <select id="e-status">
+          <option value="Active">Active</option>
+          <option value="Cancelled">Cancelled</option>
+        </select>
+
+        <div class="btn-row">
+          <button class="btn-danger" id="btn-delete">Delete</button>
+          <button class="btn-primary" id="btn-save" style="margin-top:0;">Save Changes</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
 </main>
 
 <div class="toast" id="toast"></div>
@@ -201,6 +289,7 @@
 <nav class="tabs">
   <button id="tab-add" class="active">➕ Add Entry</button>
   <button id="tab-puja">🪔 Execute Puja</button>
+  <button id="tab-list">📋 List</button>
 </nav>
 
 <div id="pinOverlay">
@@ -264,20 +353,25 @@ function toast(msg, isError) {
 }
 
 // ---- Tabs ----
-const tabAdd = document.getElementById('tab-add');
-const tabPuja = document.getElementById('tab-puja');
-const screenAdd = document.getElementById('screen-add');
-const screenPuja = document.getElementById('screen-puja');
+const tabs = {
+  add: { btn: document.getElementById('tab-add'), screen: document.getElementById('screen-add') },
+  puja: { btn: document.getElementById('tab-puja'), screen: document.getElementById('screen-puja') },
+  list: { btn: document.getElementById('tab-list'), screen: document.getElementById('screen-list') }
+};
 
 function showTab(name) {
-  const isAdd = name === 'add';
-  tabAdd.classList.toggle('active', isAdd);
-  tabPuja.classList.toggle('active', !isAdd);
-  screenAdd.classList.toggle('active', isAdd);
-  screenPuja.classList.toggle('active', !isAdd);
+  Object.entries(tabs).forEach(([key, t]) => {
+    t.btn.classList.toggle('active', key === name);
+    t.screen.classList.toggle('active', key === name);
+  });
+  if (name === 'list') {
+    showListBrowse();
+    if (allMembers.length === 0) loadMembers();
+  }
 }
-tabAdd.addEventListener('click', () => showTab('add'));
-tabPuja.addEventListener('click', () => showTab('puja'));
+tabs.add.btn.addEventListener('click', () => showTab('add'));
+tabs.puja.btn.addEventListener('click', () => showTab('puja'));
+tabs.list.btn.addEventListener('click', () => showTab('list'));
 
 // ---- Default months = current month ----
 function currentMonthStr() {
@@ -393,6 +487,157 @@ async function completeCurrent(id) {
     btn.textContent = '✅ Mark Complete & Next';
   }
 }
+
+// ---- List / CRUD ----
+let allMembers = [];
+let editingId = null;
+
+const listBrowse = document.getElementById('list-browse');
+const listEdit = document.getElementById('list-edit');
+const listRows = document.getElementById('list-rows');
+const listSearch = document.getElementById('list-search');
+
+function showListBrowse() {
+  listBrowse.classList.remove('hidden');
+  listEdit.classList.add('hidden');
+}
+function showListEdit() {
+  listBrowse.classList.add('hidden');
+  listEdit.classList.remove('hidden');
+}
+document.getElementById('btn-backToList').addEventListener('click', showListBrowse);
+
+async function loadMembers() {
+  listRows.innerHTML = '<div class="empty-state">Loading...</div>';
+  try {
+    allMembers = await apiGet({ action: 'members' });
+    renderList();
+  } catch (err) {
+    listRows.innerHTML = '';
+    toast(err.message, true);
+  }
+}
+
+listSearch.addEventListener('input', renderList);
+
+function renderList() {
+  const q = listSearch.value.trim().toLowerCase();
+  const filtered = allMembers.filter(m => {
+    if (!q) return true;
+    const hay = [m.id, m.gotram, m.text, m.headName, m.phone].join(' ').toLowerCase();
+    return hay.includes(q);
+  });
+
+  if (filtered.length === 0) {
+    listRows.innerHTML = '<div class="empty-state">No matches.</div>';
+    return;
+  }
+
+  listRows.innerHTML = filtered.map(m => {
+    const badge = m.status === 'Cancelled'
+      ? '<span class="badge badge-cancelled">Cancelled</span>'
+      : (m.membershipType === 'Annual' ? '<span class="badge badge-annual">Annual</span>' : '<span class="badge badge-onetime">One-Time</span>');
+    return `
+      <div class="list-row ${m.status === 'Cancelled' ? 'cancelled' : ''}" data-id="${m.id}">
+        <div class="list-row-id">#${m.id}</div>
+        <div class="list-row-main">
+          <div class="list-row-gotram">${escapeHtml(m.gotram)}</div>
+          <div class="list-row-text">${escapeHtml(m.text)}</div>
+        </div>
+        ${badge}
+      </div>`;
+  }).join('');
+
+  listRows.querySelectorAll('.list-row').forEach(el => {
+    el.addEventListener('click', () => openEdit(Number(el.dataset.id)));
+  });
+}
+
+let deleteConfirming = false;
+
+function openEdit(id) {
+  const m = allMembers.find(x => x.id === id);
+  if (!m) return;
+  editingId = id;
+  deleteConfirming = false;
+
+  document.getElementById('e-fullText').value = m.text || '';
+  document.getElementById('e-gotram').value = m.gotram || '';
+  document.getElementById('e-headName').value = m.headName || '';
+  document.getElementById('e-phone').value = m.phone || '';
+  document.getElementById('e-membershipType').value = m.membershipType || 'One-Time';
+  document.getElementById('e-startMonth').value = m.startMonth ? m.startMonth.slice(0, 7) : currentMonthStr();
+  document.getElementById('e-amountPaid').value = m.amountPaid || '';
+  document.getElementById('e-pujaType').value = m.pujaType || 'సంకల్ప';
+  document.getElementById('e-status').value = m.status || 'Active';
+
+  const delBtn = document.getElementById('btn-delete');
+  delBtn.textContent = 'Delete';
+  delBtn.classList.remove('confirming');
+
+  showListEdit();
+}
+
+document.getElementById('btn-save').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-save');
+  const fullText = document.getElementById('e-fullText').value.trim();
+  const gotram = document.getElementById('e-gotram').value.trim();
+  if (!fullText || !gotram) { toast('Gotram and Full Text are required', true); return; }
+
+  const payload = {
+    action: 'updateMember',
+    id: editingId,
+    fullText,
+    gotram,
+    headName: document.getElementById('e-headName').value.trim(),
+    phone: document.getElementById('e-phone').value.trim(),
+    membershipType: document.getElementById('e-membershipType').value,
+    startMonth: document.getElementById('e-startMonth').value,
+    amountPaid: document.getElementById('e-amountPaid').value,
+    pujaType: document.getElementById('e-pujaType').value,
+    status: document.getElementById('e-status').value
+  };
+
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+  try {
+    await apiPost(payload);
+    toast('Saved #' + editingId);
+    await loadMembers();
+    showListBrowse();
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save Changes';
+  }
+});
+
+document.getElementById('btn-delete').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-delete');
+  if (!deleteConfirming) {
+    deleteConfirming = true;
+    btn.textContent = 'Tap again to confirm';
+    btn.classList.add('confirming');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Deleting...';
+  try {
+    await apiPost({ action: 'deleteMember', id: editingId });
+    toast('Marked #' + editingId + ' as Cancelled');
+    await loadMembers();
+    showListBrowse();
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    btn.disabled = false;
+    deleteConfirming = false;
+    btn.textContent = 'Delete';
+    btn.classList.remove('confirming');
+  }
+});
 
 function escapeHtml(str) {
   const div = document.createElement('div');

@@ -57,6 +57,8 @@ function doPost(e) {
     checkPin(body.pin);
     if (body.action === 'addMember') return jsonOut(addMember(body));
     if (body.action === 'complete') return jsonOut(markComplete(body.id, body.month));
+    if (body.action === 'updateMember') return jsonOut(updateMember(body));
+    if (body.action === 'deleteMember') return jsonOut(deleteMember(body.id));
     return jsonOut({ error: 'unknown action' });
   } catch (err) {
     return jsonOut({ error: err.message });
@@ -160,5 +162,61 @@ function markComplete(id, monthStr) {
   var sh = getCompletionsSheet();
   var targetKey = monthKey(monthStr ? parseLocalDate(monthStr) : new Date());
   sh.appendRow([id, targetKey, new Date()]);
+  return { success: true };
+}
+
+function findMemberRow(id) {
+  var sh = getMembersSheet();
+  var ids = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues();
+  for (var i = 0; i < ids.length; i++) {
+    if (Number(ids[i][0]) === Number(id)) return i + 2; // 1-indexed sheet row
+  }
+  return -1;
+}
+
+function updateMember(body) {
+  var sh = getMembersSheet();
+  var row = findMemberRow(body.id);
+  if (row === -1) throw new Error('Member not found');
+
+  var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  var current = sh.getRange(row, 1, 1, headers.length).getValues()[0];
+  var currentObj = {};
+  headers.forEach(function (h, idx) { currentObj[h] = current[idx]; });
+
+  var membershipType = body.membershipType !== undefined ? body.membershipType : currentObj['Membership Type'];
+  var startStr = body.startMonth || monthKey(currentObj['Start Month']);
+  var startDate = parseLocalDate(startStr);
+  var endDate = membershipType === 'Annual'
+    ? new Date(startDate.getFullYear(), startDate.getMonth() + 11, 1)
+    : startDate;
+
+  var newRow = headers.map(function (h) {
+    switch (h) {
+      case 'ID': return currentObj.ID;
+      case 'Head Name': return body.headName !== undefined ? body.headName : currentObj['Head Name'];
+      case 'Gotram': return body.gotram !== undefined ? body.gotram : currentObj.Gotram;
+      case 'Full Text': return body.fullText !== undefined ? body.fullText : currentObj['Full Text'];
+      case 'Phone': return body.phone !== undefined ? body.phone : currentObj.Phone;
+      case 'Membership Type': return membershipType;
+      case 'Start Month': return startDate;
+      case 'End Month': return endDate;
+      case 'Amount Paid': return body.amountPaid !== undefined ? body.amountPaid : currentObj['Amount Paid'];
+      case 'Puja Type': return body.pujaType !== undefined ? body.pujaType : currentObj['Puja Type'];
+      case 'Status': return body.status !== undefined ? body.status : currentObj.Status;
+      default: return currentObj[h];
+    }
+  });
+  sh.getRange(row, 1, 1, headers.length).setValues([newRow]);
+  return { success: true, id: currentObj.ID };
+}
+
+function deleteMember(id) {
+  var sh = getMembersSheet();
+  var row = findMemberRow(id);
+  if (row === -1) throw new Error('Member not found');
+  var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  var statusCol = headers.indexOf('Status') + 1;
+  sh.getRange(row, statusCol).setValue('Cancelled');
   return { success: true };
 }
