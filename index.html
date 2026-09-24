@@ -472,7 +472,14 @@ document.getElementById('btn-add').addEventListener('click', async () => {
   btn.textContent = 'Adding...';
   try {
     const result = await apiPost(payload);
-    toast('Added as #' + result.id);
+    btn.textContent = 'Marking past months...';
+    // The member is saved at this point, so a failure here must not look like a failed add.
+    try {
+      const marked = await markPastMonthsDone(result.id, payload.startMonth || currentMonthStr(), payload.membershipType);
+      toast(marked ? `Added as #${result.id} · ${marked} past month(s) marked done` : 'Added as #' + result.id);
+    } catch (err) {
+      toast(`Added as #${result.id}, but marking past months failed: ${err.message}`, true);
+    }
     document.getElementById('f-fullText').value = '';
     document.getElementById('f-gotram').value = '';
     document.getElementById('f-headName').value = '';
@@ -742,6 +749,22 @@ async function loadHistory(m) {
   historyEl.innerHTML = historyRows(months, completedSet, nowYm);
 }
 
+// After adding a member or changing a start month, every covered month before the current one counts
+// as done — record completions for any that are missing so the sheet stays in sync.
+async function markPastMonthsDone(id, startYm, membershipType) {
+  const [y, m] = startYm.split('-').map(Number);
+  const end = new Date(y, m - 1 + (membershipType === 'Annual' ? 11 : 0), 1);
+  const endYm = end.getFullYear() + '-' + String(end.getMonth() + 1).padStart(2, '0');
+  const nowYm = currentMonthStr();
+  const past = monthRange(startYm, endYm).filter(ym => ym < nowYm);
+  if (!past.length) return 0;
+
+  const done = new Set((await apiGet({ action: 'completions', id })).map(d => d.slice(0, 7)));
+  const missing = past.filter(ym => !done.has(ym));
+  for (const ym of missing) await apiPost({ action: 'complete', id, month: ym });
+  return missing.length;
+}
+
 document.getElementById('btn-save').addEventListener('click', async () => {
   const btn = document.getElementById('btn-save');
   const fullText = document.getElementById('e-fullText').value.trim();
@@ -762,11 +785,24 @@ document.getElementById('btn-save').addEventListener('click', async () => {
     status: document.getElementById('e-status').value
   };
 
+  const before = allMembers.find(m => m.id === editingId);
+  const startChanged = before && (before.startMonth || '').slice(0, 7) !== payload.startMonth;
+
   btn.disabled = true;
   btn.textContent = 'Saving...';
   try {
     await apiPost(payload);
-    toast('Saved #' + editingId);
+    if (startChanged && payload.status === 'Active') {
+      btn.textContent = 'Marking past months...';
+      try {
+        const marked = await markPastMonthsDone(editingId, payload.startMonth, payload.membershipType);
+        toast(marked ? `Saved #${editingId} · ${marked} past month(s) marked done` : 'Saved #' + editingId);
+      } catch (err) {
+        toast(`Saved #${editingId}, but marking past months failed: ${err.message}`, true);
+      }
+    } else {
+      toast('Saved #' + editingId);
+    }
     await loadMembers();
     showListBrowse();
   } catch (err) {
