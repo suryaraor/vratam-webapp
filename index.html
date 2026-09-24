@@ -141,6 +141,7 @@
   .history-row:last-child { border-bottom: none; }
   .history-done { color: var(--good); font-weight: 700; }
   .history-pending { color: var(--ink-soft); }
+  .history-progress { color: var(--accent); font-weight: 700; }
   .history-empty { color: var(--ink-soft); font-size: 0.85rem; padding: 8px 2px; }
 
   .readonly-field {
@@ -354,6 +355,7 @@
     <h2 style="margin-top:0;">Enter Access PIN</h2>
     <p>Ask the committee admin if you don't have it.</p>
     <input id="pinInput" type="password" autocapitalize="none" autocomplete="off" placeholder="PIN">
+    <p id="pinHint" class="hidden"></p>
     <button class="btn-primary" id="pinSubmit">Continue</button>
   </div>
 </div>
@@ -361,6 +363,8 @@
 <script>
 // ---- Config ----
 const API_URL = 'https://script.google.com/macros/s/AKfycbxNi3DoFg4ccDyeN2WejUwz1ly25oDThK5vtnNQraRGt9OGdgPwBxbipSfuY6PkLdp6/exec';
+// Pre-fills the PIN box and shows it as a hint. Set to '' before going to prod.
+const DEV_PIN = 'SATYA2026';
 
 // ---- PIN gate ----
 const pinOverlay = document.getElementById('pinOverlay');
@@ -373,6 +377,13 @@ document.getElementById('pinSubmit').addEventListener('click', () => {
   setPin(val);
   pinOverlay.classList.add('hidden');
 });
+
+if (DEV_PIN) {
+  document.getElementById('pinInput').value = DEV_PIN;
+  const hint = document.getElementById('pinHint');
+  hint.textContent = 'Hint: PIN is ' + DEV_PIN;
+  hint.classList.remove('hidden');
+}
 
 if (getPin()) pinOverlay.classList.add('hidden');
 
@@ -697,6 +708,18 @@ function monthRange(startYm, endYm) {
   return months;
 }
 
+// Past months always count as done (the sheet is back-filled to match by the
+// /ingest sync step); the current month is in progress until marked complete.
+function historyRows(months, completedSet, nowYm) {
+  return months.map(ym => {
+    let right;
+    if (completedSet.has(ym) || ym < nowYm) right = '<span class="history-done">✅ Done</span>';
+    else if (ym === nowYm) right = '<span class="history-progress">⏳ In progress</span>';
+    else right = '<span class="history-pending">Upcoming</span>';
+    return `<div class="history-row"><span>${monthLabel(ym)}</span>${right}</div>`;
+  }).join('');
+}
+
 async function loadHistory(m) {
   const historyEl = document.getElementById('e-history');
   historyEl.innerHTML = '<div class="history-empty">Loading...</div>';
@@ -716,13 +739,7 @@ async function loadHistory(m) {
   const completedSet = new Set(completed.map(d => d.slice(0, 7)));
   const nowYm = currentMonthStr();
 
-  historyEl.innerHTML = months.map(ym => {
-    const done = completedSet.has(ym);
-    const right = done
-      ? '<span class="history-done">✅ Done</span>'
-      : `<span class="history-pending">${ym > nowYm ? 'Upcoming' : 'Pending'}</span>`;
-    return `<div class="history-row"><span>${monthLabel(ym)}</span>${right}</div>`;
-  }).join('');
+  historyEl.innerHTML = historyRows(months, completedSet, nowYm);
 }
 
 document.getElementById('btn-save').addEventListener('click', async () => {
@@ -827,13 +844,7 @@ function renderMyHistory(p, completed) {
   const completedSet = new Set(completed.map(d => d.slice(0, 7)));
   const nowYm = currentMonthStr();
 
-  historyEl.innerHTML = months.map(ym => {
-    const done = completedSet.has(ym);
-    const right = done
-      ? '<span class="history-done">✅ Done</span>'
-      : `<span class="history-pending">${ym > nowYm ? 'Upcoming' : 'Pending'}</span>`;
-    return `<div class="history-row"><span>${monthLabel(ym)}</span>${right}</div>`;
-  }).join('');
+  historyEl.innerHTML = historyRows(months, completedSet, nowYm);
 }
 
 document.getElementById('btn-mySave').addEventListener('click', async () => {

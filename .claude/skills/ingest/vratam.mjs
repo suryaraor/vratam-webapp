@@ -4,6 +4,7 @@
 //   node vratam.mjs parse   <whatsapp.txt> <out.json>   split a WhatsApp paste into numbered entries
 //   node vratam.mjs members <out.json>                  dump every member (all statuses) to a file
 //   node vratam.mjs apply   <plan.json> <out.json>      run the add/update ops in a plan file
+//   node vratam.mjs sync    <out.json> [--dry]          mark every covered month before this one as done
 //
 // Output goes to files (UTF-8) rather than stdout so Telugu text survives the Windows console.
 // PIN comes from $VRATAM_PIN, falling back to ACCESS_PIN in Code.gs.
@@ -93,6 +94,38 @@ async function apply(plan) {
   return results;
 }
 
+function ym(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
+
+function monthRange(startYm, endYm) {
+  const out = [];
+  let [y, m] = startYm.split('-').map(Number);
+  const [ey, em] = endYm.split('-').map(Number);
+  while (y < ey || (y === ey && m <= em)) {
+    out.push(`${y}-${String(m).padStart(2, '0')}`);
+    if (++m > 12) { m = 1; y++; }
+  }
+  return out;
+}
+
+// Past months are always "done": add a completion for every month an Active
+// member covered before the current month that has no completion yet.
+async function sync(dry) {
+  const now = ym(new Date());
+  const added = [];
+  for (const m of await apiGet({ action: 'members' })) {
+    if (m.status !== 'Active' || !m.startMonth || !m.endMonth) continue;
+    const past = monthRange(m.startMonth.slice(0, 7), m.endMonth.slice(0, 7)).filter(x => x < now);
+    if (!past.length) continue;
+    const done = new Set((await apiGet({ action: 'completions', id: m.id })).map(d => d.slice(0, 7)));
+    for (const month of past.filter(x => !done.has(x))) {
+      if (!dry) await apiPost({ action: 'complete', id: m.id, month });
+      added.push({ id: m.id, month });
+      console.log(`${dry ? 'would mark' : 'marked'} ${m.id} ${month}`);
+    }
+  }
+  return added;
+}
+
 const [cmd, a, b] = process.argv.slice(2);
 const write = (path, obj) => writeFileSync(path, JSON.stringify(obj, null, 2), 'utf8');
 
@@ -110,7 +143,12 @@ if (cmd === 'parse' && a && b) {
   const failed = results.filter(r => !r.ok).length;
   console.log(`${results.length - failed} ok, ${failed} failed -> ${b}`);
   if (failed) process.exit(1);
+} else if (cmd === 'sync' && a) {
+  const dry = b === '--dry';
+  const added = await sync(dry);
+  write(a, added);
+  console.log(`${added.length} month(s) ${dry ? 'to mark' : 'marked'} done -> ${a}`);
 } else {
-  console.error('usage: vratam.mjs parse <in.txt> <out.json> | members <out.json> | apply <plan.json> <out.json>');
+  console.error('usage: vratam.mjs parse <in.txt> <out.json> | members <out.json> | apply <plan.json> <out.json> | sync <out.json> [--dry]');
   process.exit(2);
 }

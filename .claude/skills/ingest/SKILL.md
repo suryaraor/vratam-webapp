@@ -89,3 +89,8 @@ its ID, token (private link) and completion history are preserved.
 7. **Verify.** Re-fetch members and confirm every entry in the file now covers T
    (converted rows show Annual with the expected start/end). Report counts per group,
    the new IDs assigned, and any failures.
+
+8. **Sync past months.** Every month before T counts as done, even if nobody pressed
+   "Mark Complete" at the time (the app's history screens already show it that way).
+   Run `node .claude/skills/ingest/vratam.mjs sync <scratch>/sync.json --dry`, report the count,
+   then run it again without `--dry` to write the missing completions. Cancelled members are skipped.
